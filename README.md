@@ -26,8 +26,7 @@ SafeTrail is a comprehensive embedded systems project designed to demonstrate re
 ### Dashboard & Web Interface
 
 <img width="3300" height="2550" alt="SafeTrail Configuration Dashboard" src="https://github.com/user-attachments/assets/72e97ac5-16a4-4a7b-ad51-3bad6b4a6d77" />
-
-<img width="3300" height="2550" alt="SafeTrail Movement Dashboard" src="https://github.com/user-attachments/assets/8900493d-42db-45d9-8234-acb71f7365ab" />
+<img width="3300" height="821" alt="SafeTrail Dashboard_page-0002 - Edited" src="https://github.com/user-attachments/assets/dcb65a47-d7d7-48ce-bdf9-0d34ed47014d" />
 
 **Dashboard Functionality:**
 - Real-time GPS location visualization
@@ -36,7 +35,7 @@ SafeTrail is a comprehensive embedded systems project designed to demonstrate re
 - Emergency alert logs
 - Device status and battery monitoring
 
-Data is transmitted to **ThingSpeak** (cloud platform) via the SIM800L GSM module and retrieved through a private API for display on the web dashboard.
+Data is transmitted to **ThingSpeak** (cloud platform) via the ESP32 microcontroller built-in 2.4 GHz Wi-Fi (802.11 b/g/n) and retrieved through a private API for display on the web dashboard.
 
 ---
 
@@ -213,3 +212,9 @@ This project demonstrates proficiency in:
 ## License
 
 This project is part of the Embedded Systems Lab curriculum.
+
+## Author
+- **Abid Hasan**
+- **SEU CSE**
+- Check out my portfolio [here](https://abidhasan27.me).
+
