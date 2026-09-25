@@ -5,7 +5,8 @@
 > ESP32 DevKit V1 — 38-pin reference diagram
 
 <img width="3300" height="2550" alt="Insert your Channel Id" src="https://github.com/user-attachments/assets/72e97ac5-16a4-4a7b-ad51-3bad6b4a6d77" />
-<img width="3300" height="2550" alt="SafeTrail Dashboard_page-0002" src="https://github.com/user-attachments/assets/8900493d-42db-45d9-8234-acb71f7365ab" />
+<img width="3300" height="821" alt="SafeTrail Dashboard_page-0002 - Edited" src="https://github.com/user-attachments/assets/204edfba-201b-4836-b73e-15e86bf4d2f0" />
+
 
 Webpage view: data is uploaded to ThingSpeak, a cloud platform, and then displayed through a private API so the movement of the user can be monitored in real time.
 
