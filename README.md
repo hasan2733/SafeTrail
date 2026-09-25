@@ -216,5 +216,5 @@ This project is part of the Embedded Systems Lab curriculum.
 ## Author
 - **Abid Hasan**
 - **SEU CSE**
-- Check out my portfolio [here](https://abidhasan27.me).
+- **Check out my portfolio [here](https://abidhasan27.me).**
 
