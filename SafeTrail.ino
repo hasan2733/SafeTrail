@@ -810,8 +810,6 @@ void updateDisplay() {
 }
 
 String stateToString(SafetyState s) {
-  String stateToString(SafetyState s) {
-
     switch (s) {
       case SAFE: return "SAFE";
       case CAUTION: return "CAUTION";
