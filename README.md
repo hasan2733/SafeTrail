@@ -1,6 +1,15 @@
 # SafeTrail
 
-SafeTrail is a personal safety and emergency response wearable built around the ESP32 microcontroller. It combines environmental sensing, motion analysis, GPS tracking, geofencing, emergency alerting, and cloud upload into a single low-cost embedded system designed for personal protection and rapid emergency response.
+<img width="1000" height="595" alt="ESP32 DevKit V1 38-pin diagram" src="https://github.com/user-attachments/assets/70127d7a-a3ee-4f65-bf13-512b797dd93b" />
+
+> ESP32 DevKit V1 — 38-pin reference diagram
+
+<img width="3300" height="2550" alt="Insert your Channel Id" src="https://github.com/user-attachments/assets/72e97ac5-16a4-4a7b-ad51-3bad6b4a6d77" />
+<img width="3300" height="2550" alt="SafeTrail Dashboard_page-0002" src="https://github.com/user-attachments/assets/8900493d-42db-45d9-8234-acb71f7365ab" />
+
+Webpage view: data is uploaded to ThingSpeak, a cloud platform, and then displayed through a private API so the movement of the user can be monitored in real time.
+
+SafeTrail is a personal safety and emergency response wearable built around the ESP32 microcontroller. It combines environmental sensing, motion analysis, GPS tracking, geofencing, emergency alerting, and cloud-based monitoring to support rapid response in risky conditions.
 
 The current implementation includes a K-Nearest Neighbors (KNN) risk classifier, geofence logic, OLED display status feedback, SMS fallback alerts, and ThingSpeak-based cloud monitoring.
 
@@ -149,7 +158,7 @@ Labels used in the model:
 The code includes a verbose KNN test command to inspect nearest neighbors and vote counts directly from the serial console.
 
 ### Important Note
-The training data in the current code is a placeholder dataset intended for prototype validation. For real deployment, it should be replaced with field-collected and labeled user data for better accuracy.
+The training data in the current code is a placeholder dataset intended for prototype validation. For real deployment, it should be replaced with field-collected and labeled user data for better accuracy and reliability.
 
 ---
 
@@ -305,7 +314,7 @@ During runtime, SafeTrail does the following:
 
 ## Project Notes
 
-This repository is intended as an embedded systems safety prototype and demonstration project. The current code is functional for testing, simulation, and hardware validation, but some parts (especially the training dataset and deployment-specific thresholds) should be refined for production use.
+This repository is intended as an embedded systems safety prototype and demonstration project. The current code is functional for testing, simulation, and hardware validation, but some parts, especially the deployed risk model and communication configuration, should be refined before real-world deployment.
 
 ---
 
@@ -320,4 +329,3 @@ This project is part of the Embedded Systems Lab curriculum.
 - Abid Hasan
 - SEU CSE
 - Portfolio: https://abidhasan27.me
-
