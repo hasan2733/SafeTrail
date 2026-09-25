@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SafeTrail Dashboard</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#131a22; --panel2:#0f151c; --border:#233040;
+    --text:#e8eef5; --muted:#8ea2b5; --accent:#3ddc97; --warn:#f5c451;
+    --danger:#ff5a63; --caution:#ffb347;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
+  header{padding:18px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;}
+  header h1{margin:0;font-size:20px;letter-spacing:.3px;}
+  header h1 span{color:var(--accent);}
+  #liveDot{width:9px;height:9px;border-radius:50%;background:var(--muted);display:inline-block;margin-right:6px;}
+  #liveDot.on{background:var(--accent);box-shadow:0 0 8px var(--accent);}
+  .statusline{font-size:12px;color:var(--muted);}
+  main{max-width:1100px;margin:0 auto;padding:20px;}
+  .setup{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px;}
+  .setup h2{margin:0 0 10px;font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;}
+  .setup .row{display:flex;gap:10px;flex-wrap:wrap;}
+  .setup input{flex:1;min-width:160px;background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:8px;font-size:14px;}
+  .setup button{background:var(--accent);color:#08130d;border:none;padding:10px 18px;border-radius:8px;font-weight:600;cursor:pointer;font-size:14px;}
+  .setup button:hover{opacity:.9;}
+  .setup .hint{font-size:12px;color:var(--muted);margin-top:8px;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:20px;}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;}
+  .card .label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;}
+  .card .value{font-size:26px;font-weight:700;}
+  .card .unit{font-size:14px;color:var(--muted);font-weight:400;}
+  .state-SAFE{color:var(--accent);}
+  .state-CAUTION{color:var(--caution);}
+  .state-WARNING{color:var(--warn);}
+  .state-EMERGENCY{color:var(--danger);}
+  #riskBarWrap{background:var(--panel2);border:1px solid var(--border);border-radius:8px;height:10px;overflow:hidden;margin-top:10px;}
+  #riskBar{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--warn),var(--danger));transition:width .4s;}
+  .mapcard{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px;}
+  .mapcard h2{margin:0 0 12px;font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;}
+  #map{height:380px;border-radius:8px;overflow:hidden;}
+  .zonebadge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;margin-left:8px;}
+  .zone-in{background:rgba(61,220,151,.15);color:var(--accent);}
+  .zone-out{background:rgba(255,90,99,.15);color:var(--danger);}
+  footer{text-align:center;color:var(--muted);font-size:12px;padding:20px;}
+  #errBox{display:none;background:rgba(255,90,99,.1);border:1px solid var(--danger);color:var(--danger);padding:10px 14px;border-radius:8px;margin-bottom:16px;font-size:13px;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Safe<span>Trail</span> Dashboard</h1>
+  <div class="statusline"><span id="liveDot"></span><span id="statusText">Not connected</span></div>
+</header>
+
+<main>
+  <div class="setup" id="setupBox">
+    <h2>ThingSpeak Connection</h2>
+    <div class="row">
+      <input id="channelId" placeholder="Channel ID (e.g. 123456)">
+      <input id="apiKey" placeholder="Read API Key">
+      <input id="interval" type="number" min="5" value="20" style="max-width:110px" title="Refresh seconds">
+      <button onclick="saveConfig()">Connect</button>
+    </div>
+    <div class="hint">Field mapping: field1=lat, field2=lng, field3=risk score, field4=temp °C, field5=humidity %, field6=state (0 SAFE / 1 CAUTION / 2 WARNING / 3 EMERGENCY). Saved locally in this browser.</div>
+  </div>
+
+  <div id="errBox"></div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="label">State</div>
+      <div class="value" id="stateVal">--</div>
+    </div>
+    <div class="card">
+      <div class="label">Risk Score</div>
+      <div class="value" id="riskVal">--<span class="unit">%</span></div>
+      <div id="riskBarWrap"><div id="riskBar"></div></div>
+    </div>
+    <div class="card">
+      <div class="label">Temperature</div>
+      <div class="value" id="tempVal">--<span class="unit">°C</span></div>
+    </div>
+    <div class="card">
+      <div class="label">Humidity</div>
+      <div class="value" id="humVal">--<span class="unit">%</span></div>
+    </div>
+    <div class="card">
+      <div class="label">Last Update</div>
+      <div class="value" id="timeVal" style="font-size:16px;">--</div>
+    </div>
+  </div>
+
+  <div class="mapcard">
+    <h2>Location <span id="zoneBadge"></span></h2>
+    <div id="map"></div>
+  </div>
+
+  <footer>Auto-refreshes from your ThingSpeak channel. Data and API key stay in your browser only.</footer>
+</main>
+
+<script>
+let map, marker;
+let timer = null;
+
+function initMap(){
+  map = L.map('map').setView([23.7731361, 90.4020881], 15);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors',
+    subdomains: 'abc',
+    maxZoom: 19
+  }).addTo(map);
+
+  const defaultIcon = L.icon({
+    iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+    iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+    iconSize: [25, 41],
+    iconAnchor: [12, 41],
+    popupAnchor: [1, -34],
+    shadowSize: [41, 41]
+  });
+
+  marker = L.marker([23.7731361, 90.4020881], {icon: defaultIcon}).addTo(map);
+
+  setTimeout(function(){ map.invalidateSize(); }, 200);
+}
+
+function loadConfig(){
+  const c = localStorage.getItem('st_channel');
+  const k = localStorage.getItem('st_key');
+  const iv = localStorage.getItem('st_interval');
+  if(c) document.getElementById('channelId').value = c;
+  if(k) document.getElementById('apiKey').value = k;
+  if(iv) document.getElementById('interval').value = iv;
+  if(c && k){ startPolling(); }
+}
+
+function saveConfig(){
+  const c = document.getElementById('channelId').value.trim();
+  const k = document.getElementById('apiKey').value.trim();
+  const iv = parseInt(document.getElementById('interval').value) || 20;
+  if(!c || !k){ showErr('Enter both Channel ID and Read API Key.'); return; }
+  localStorage.setItem('st_channel', c);
+  localStorage.setItem('st_key', k);
+  localStorage.setItem('st_interval', iv);
+  startPolling();
+}
+
+function showErr(msg){
+  const box = document.getElementById('errBox');
+  box.textContent = msg;
+  box.style.display = 'block';
+}
+function clearErr(){
+  document.getElementById('errBox').style.display = 'none';
+}
+
+function startPolling(){
+  if(timer) clearInterval(timer);
+  fetchData();
+  const iv = (parseInt(localStorage.getItem('st_interval')) || 20) * 1000;
+  timer = setInterval(fetchData, Math.max(iv, 5000));
+}
+
+async function fetchData(){
+  const c = localStorage.getItem('st_channel');
+  const k = localStorage.getItem('st_key');
+  if(!c || !k) return;
+  const url = `https://api.thingspeak.com/channels/${c}/feeds/last.json?api_key=${k}`;
+  try{
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    let d = await res.json();
+    if(d && Array.isArray(d.feeds)){
+      if(d.feeds.length === 0){ throw new Error('No data yet on this channel.'); }
+      d = d.feeds[d.feeds.length - 1];
+    }
+    if(!d || d.field1 === undefined){ throw new Error('No data yet on this channel.'); }
+    clearErr();
+    setLive(true);
+    render(d);
+  }catch(e){
+    setLive(false);
+    showErr('Could not fetch data: ' + e.message);
+  }
+}
+
+function setLive(on){
+  document.getElementById('liveDot').className = on ? 'on' : '';
+  document.getElementById('statusText').textContent = on ? 'Live' : 'Connection issue';
+}
+
+const stateNames = ['SAFE','CAUTION','WARNING','EMERGENCY'];
+
+function render(d){
+  const lat = parseFloat(d.field1), lng = parseFloat(d.field2);
+  const risk = parseFloat(d.field3) || 0;
+  const temp = parseFloat(d.field4);
+  const hum = parseFloat(d.field5);
+  const stateIdx = parseInt(d.field6);
+  const stateName = stateNames[stateIdx] !== undefined ? stateNames[stateIdx] : '--';
+
+  const stateEl = document.getElementById('stateVal');
+  stateEl.textContent = stateName;
+  stateEl.className = 'value state-' + stateName;
+
+  document.getElementById('riskVal').innerHTML = risk + '<span class="unit">%</span>';
+  document.getElementById('riskBar').style.width = Math.min(risk,100) + '%';
+  document.getElementById('tempVal').innerHTML = (isNaN(temp)?'--':temp.toFixed(1)) + '<span class="unit">°C</span>';
+  document.getElementById('humVal').innerHTML = (isNaN(hum)?'--':hum.toFixed(0)) + '<span class="unit">%</span>';
+  document.getElementById('timeVal').textContent = d.created_at ? new Date(d.created_at).toLocaleString() : '--';
+
+  const badge = document.getElementById('zoneBadge');
+  if(stateName === 'EMERGENCY'){
+    badge.textContent = 'EMERGENCY';
+    badge.className = 'zonebadge zone-out';
+  } else {
+    badge.textContent = '';
+    badge.className = '';
+  }
+
+  if(!isNaN(lat) && !isNaN(lng) && (lat !== 0 || lng !== 0)){
+    marker.setLatLng([lat,lng]);
+    map.panTo([lat,lng]);
+  }
+}
+
+initMap();
+loadConfig();
+</script>
+</body>
+</html>
