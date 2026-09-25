@@ -4,7 +4,7 @@
 /*
   =========================================================
   SafeTrail - Personal Safety & Emergency Response Wearable
-  FULL FINAL CODE
+  FULL FINAL CODE (v2 - serial test console + themes)
   =========================================================
 
   Features in this build:
@@ -13,16 +13,18 @@
       humidity, distance-from-safe-zone)
     - Geofencing (haversine distance from a defined safe zone)
     - WiFi + ThingSpeak cloud dashboard (location + status)
-    - SIM800L SMS — emergency fallback only
-    - 3 buttons (SOS / SAFE / MODE), buzzer, vibration motor
+    - SIM800L SMS - emergency fallback only
+    - 3 buttons (SOS / SAFE / THEME), buzzer, vibration motor
     - Redesigned OLED UI (status bar + big state + risk bar)
+    - Serial command console for troubleshooting/testing without
+      needing every sensor physically working
 
   ---------------- WIRING SUMMARY ----------------
   MPU6050   SDA:21  SCL:22  VCC:3.3V  GND
   DHT22     DATA:4 (10k pull-up to VCC)  VCC:3.3V/5V  GND
   SSD1306   SDA:21  SCL:22  (addr 0x3C)
   Buzzer    I/O:27  VCC:3.3V/5V  GND        (passive -> tone())
-  Buttons   SOS:32  SAFE:33  MODE:25        (3-pin modules, INPUT_PULLDOWN, active HIGH)
+  Buttons   SOS:32  SAFE:33  THEME:25       (3-pin modules, INPUT_PULLDOWN, active HIGH)
   Vibration GPIO26 -> 200ohm -> transistor base
             motor+ -> battery+, motor- -> transistor collector
             transistor emitter -> GND, flyback diode across motor
@@ -42,10 +44,31 @@
     1. Set WIFI_SSID / WIFI_PASSWORD.
     2. Set THINGSPEAK_API_KEY.
     3. Set GUARDIAN_PHONE.
-    4. Set SAFE_ZONE_LAT / SAFE_ZONE_LNG / SAFE_ZONE_RADIUS_M
-       to your actual home/safe-zone coordinates and radius.
+    4. SAFE_ZONE_LAT / SAFE_ZONE_LNG / SAFE_ZONE_RADIUS_M below are
+       now set to your given coordinates as default, but you can
+       change them anytime over Serial with: ZONE <lat> <lng> <radius_m>
+       -- no reflashing needed for testing.
     5. Replace the placeholder trainData[]/trainLabels[] with
        your own collected, labeled readings for real accuracy.
+
+  ---------------- SERIAL TEST CONSOLE ----------------
+    Open Serial Monitor at 115200 baud, type a command + Enter:
+
+    HELP                          - show command list
+    STATUS                        - full system status dump
+    GPS <lat> <lng>               - inject a fake GPS fix (test geofence without real fix)
+    ZONE <lat> <lng> <radius_m>   - change safe zone center/radius live
+    KNN <accel> <gyro> <temp> <hum> <dist> - run classifier on custom values,
+                                     prints nearest neighbors + vote breakdown
+    SOS                           - simulate a 3x SOS button press
+    SAFEBTN                       - simulate the SAFE button press
+    THEME                         - cycle OLED display theme
+    CLOUD <seconds>               - change ThingSpeak upload interval (min 15s)
+    WIFI                          - print WiFi status
+    RAWACCEL                      - dump raw MPU6050 accel registers (I2C sanity check)
+    DHTTEST                       - read+print DHT22 temp/humidity
+    MPUTEST                       - read+print MPU6050 accel/gyro
+    OPMODE <SAFE|TRAVEL|SILENT|EMERGENCY|TEST> - set operating mode
 */
 
 #include <WiFi.h>
@@ -59,24 +82,25 @@
 #include <TinyGPS++.h>
 
 // ---------------- WiFi & Cloud config ----------------
-const char* WIFI_SSID = "YOUR_WIFI_SSID";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
-const char* THINGSPEAK_API_KEY = "YOUR_KEY";
+const char* WIFI_SSID = "Your wifi name";
+const char* WIFI_PASSWORD = "your password";
+const char* THINGSPEAK_API_KEY = "your private key";
 const char* THINGSPEAK_URL = "http://api.thingspeak.com/update";
-const unsigned long CLOUD_INTERVAL = 20000;  // ThingSpeak free tier needs >=15s
+unsigned long CLOUD_INTERVAL = 20000;  // ThingSpeak free tier needs >=15s; change live with CLOUD <sec>
 
 // ---------------- Guardian contact (SMS fallback) ----------------
-const char* GUARDIAN_PHONE = "+8801747470294";
+const char* GUARDIAN_PHONE = "contact number";
 
 // ---------------- Geofence config ----------------
-// Set these to your actual safe-zone center coordinates (e.g. home)
-const double SAFE_ZONE_LAT = "2*.8**3";      // <-- replace with real latitude
-const double SAFE_ZONE_LNG = "*0.41**";      // <-- replace with real longitude
-const double SAFE_ZONE_RADIUS_M = 2000.0;  // safe zone radius in meters
+// Defaults set to your given coordinates. Change live with:
+//   ZONE <lat> <lng> <radius_m>
+double SAFE_ZONE_LAT = ********;
+double SAFE_ZONE_LNG = ********;
+double SAFE_ZONE_RADIUS_M = 300.0;  // meters - tune to taste
 
 // ---------------- Pin definitions ----------------
 #define DHT_PIN 4
-#define MODE_BUTTON 25
+#define THEME_BUTTON 25   // was MODE_BUTTON - now cycles OLED theme
 #define SAFE_BUTTON 33
 #define SOS_BUTTON 32
 #define BUZZER_PIN 27
@@ -92,7 +116,6 @@ const double SAFE_ZONE_RADIUS_M = 2000.0;  // safe zone radius in meters
 #define OLED_ADDR 0x3C
 #define DHTTYPE DHT22
 
-
 int emergencyStreak = 0;
 const int EMERGENCY_CONFIRM_COUNT = 5;
 
@@ -106,18 +129,19 @@ HardwareSerial simSerial(1);
 
 // ---------------- System state ----------------
 enum SafetyState { SAFE,
-                   CAUTION,
-                   WARNING,
-                   EMERGENCY };
+                    CAUTION,
+                    WARNING,
+                    EMERGENCY };
 enum OperatingMode { MODE_SAFE,
-                     MODE_TRAVEL,
-                     MODE_SILENT,
-                     MODE_EMERGENCY,
-                     MODE_TEST };
+                      MODE_TRAVEL,
+                      MODE_SILENT,
+                      MODE_EMERGENCY,
+                      MODE_TEST };
 
 SafetyState currentState = SAFE;
-OperatingMode currentMode = MODE_SAFE;
+OperatingMode currentMode = MODE_SAFE;  // now set via Serial: OPMODE <...>
 int riskScore = 0;
+int displayTheme = 0;  // 0=Standard 1=Cat 2=DataView - cycled by THEME button / THEME command
 
 bool emergencyPending = false;
 unsigned long emergencyPendingStart = 0;
@@ -129,10 +153,16 @@ int sosPressCount = 0;
 unsigned long lastSosPressTime = 0;
 const unsigned long SOS_PRESS_WINDOW_MS = 2000;
 
-unsigned long lastModeDebounce = 0;
+unsigned long lastThemeDebounce = 0;
 unsigned long lastSafeDebounce = 0;
 unsigned long lastSosDebounce = 0;
-const unsigned long DEBOUNCE_MS = 300;
+const unsigned long DEBOUNCE_MS = 30;
+
+// Edge-detection state for buttons (fix: was missing, caused SOS/THEME/SAFE
+// to keep re-firing on every loop() pass while a button was held)
+bool lastThemeBtnState = LOW;
+bool lastSafeBtnState = LOW;
+bool lastSosBtnState = LOW;
 
 float temperature = 0, humidity = 0;
 float lastLat = 0, lastLng = 0;
@@ -159,8 +189,7 @@ unsigned long lastWiFiRetry = 0;
 // Labels: 0=SAFE, 1=CAUTION, 2=WARNING, 3=EMERGENCY
 //
 // IMPORTANT: this is placeholder training data. Replace with your
-// own collected + labeled readings (see the data-collection sketch
-// from earlier) for real accuracy.
+// own collected + labeled readings for real accuracy.
 
 #define NUM_SAMPLES 25
 #define NUM_FEATURES 5
@@ -270,6 +299,70 @@ int knnPredict(float accelMag, float gyroMag, float temp, float hum, float distM
   return bestLabel;
 }
 
+// Verbose version for the KNN serial test command - prints neighbors + votes
+void testKnnVerbose(float accelMag, float gyroMag, float temp, float hum, float distMeters) {
+  float query[NUM_FEATURES] = {
+    normalize(accelMag, 0),
+    normalize(gyroMag, 1),
+    normalize(temp, 2),
+    normalize(hum, 3),
+    normalize(distMeters, 4)
+  };
+
+  float normTrain[NUM_SAMPLES][NUM_FEATURES];
+  for (int i = 0; i < NUM_SAMPLES; i++)
+    for (int j = 0; j < NUM_FEATURES; j++)
+      normTrain[i][j] = normalize(trainData[i][j], j);
+
+  float distances[NUM_SAMPLES];
+  int indices[NUM_SAMPLES];
+  for (int i = 0; i < NUM_SAMPLES; i++) {
+    distances[i] = euclideanDistance(query, normTrain[i]);
+    indices[i] = i;
+  }
+  for (int i = 0; i < K; i++) {
+    int minIdx = i;
+    for (int j = i + 1; j < NUM_SAMPLES; j++)
+      if (distances[indices[j]] < distances[indices[minIdx]]) minIdx = j;
+    int t = indices[i];
+    indices[i] = indices[minIdx];
+    indices[minIdx] = t;
+  }
+
+  const char* labelNames[4] = { "SAFE", "CAUTION", "WARNING", "EMERGENCY" };
+  int voteCount[4] = { 0, 0, 0, 0 };
+
+  Serial.println("[KNN TEST] Nearest neighbors:");
+  for (int i = 0; i < K; i++) {
+    int s = indices[i];
+    voteCount[trainLabels[s]]++;
+    Serial.print("  sample ");
+    Serial.print(s);
+    Serial.print("  dist=");
+    Serial.print(distances[s], 4);
+    Serial.print("  label=");
+    Serial.println(labelNames[trainLabels[s]]);
+  }
+
+  int bestLabel = 0, bestCount = voteCount[0];
+  for (int i = 1; i < 4; i++)
+    if (voteCount[i] > bestCount) {
+      bestCount = voteCount[i];
+      bestLabel = i;
+    }
+
+  Serial.print("[KNN TEST] Votes -> SAFE:");
+  Serial.print(voteCount[0]);
+  Serial.print(" CAUTION:");
+  Serial.print(voteCount[1]);
+  Serial.print(" WARNING:");
+  Serial.print(voteCount[2]);
+  Serial.print(" EMERGENCY:");
+  Serial.println(voteCount[3]);
+  Serial.print("[KNN TEST] Predicted: ");
+  Serial.println(labelNames[bestLabel]);
+}
+
 // =========================================================
 //  GEOFENCE (Haversine distance)
 // =========================================================
@@ -310,12 +403,10 @@ void dumpRawAccelRegs() {
 }
 
 void checkGeofence() {
-  // Do nothing until GPS has a valid fix
   if (!gpsFixValid) {
     return;
   }
 
-  // Calculate distance from safe-zone center
   distanceFromSafeZone =
     haversineDistance(
       SAFE_ZONE_LAT,
@@ -327,65 +418,31 @@ void checkGeofence() {
   Serial.print(distanceFromSafeZone, 1);
   Serial.println(" m");
 
-  // ---------------------------------------------------------
-  // First valid GPS reading
-  // ---------------------------------------------------------
   if (!zoneStateInitialized) {
-
-    insideSafeZone =
-      (distanceFromSafeZone <= SAFE_ZONE_RADIUS_M);
-
+    insideSafeZone = (distanceFromSafeZone <= SAFE_ZONE_RADIUS_M);
     zoneStateInitialized = true;
-
-    Serial.println(
-      insideSafeZone
-        ? "[GEOFENCE] Initial state: INSIDE"
-        : "[GEOFENCE] Initial state: OUTSIDE");
-
+    Serial.println(insideSafeZone ? "[GEOFENCE] Initial state: INSIDE" : "[GEOFENCE] Initial state: OUTSIDE");
     return;
   }
 
-  // ---------------------------------------------------------
-  // Currently INSIDE
-  // Only declare OUTSIDE after crossing the extra margin.
-  // This prevents GPS jitter from repeatedly changing state.
-  // ---------------------------------------------------------
   if (insideSafeZone) {
-
     if (distanceFromSafeZone > SAFE_ZONE_RADIUS_M + ZONE_EXIT_MARGIN_M) {
-
       insideSafeZone = false;
-
       Serial.println("[GEOFENCE] User LEFT safe zone!");
 
-      // Send exit alert only once
       if (!geofenceAlertSent) {
-
         geofenceAlertSent = true;
-
         String message =
           "SafeTrail ALERT: User has left the safe zone. "
           "Distance: "
           + String(distanceFromSafeZone, 0) + "m. Location: https://maps.google.com/?q=" + String(lastLat, 6) + "," + String(lastLng, 6);
-
         sendSMS(message);
       }
     }
-  }
-
-  // ---------------------------------------------------------
-  // Currently OUTSIDE
-  // Require the user to move sufficiently inside before
-  // declaring the user back inside.
-  // ---------------------------------------------------------
-  else {
-
+  } else {
     if (distanceFromSafeZone < SAFE_ZONE_RADIUS_M - ZONE_ENTER_MARGIN_M) {
-
       insideSafeZone = true;
-
       geofenceAlertSent = false;
-
       Serial.println("[GEOFENCE] User RE-ENTERED safe zone.");
     }
   }
@@ -401,7 +458,7 @@ void setup() {
   gpsSerial.begin(9600, SERIAL_8N1, GPS_RX, GPS_TX);
   simSerial.begin(9600, SERIAL_8N1, SIM_RX, SIM_TX);
 
-  pinMode(MODE_BUTTON, INPUT_PULLDOWN);
+  pinMode(THEME_BUTTON, INPUT_PULLDOWN);
   pinMode(SAFE_BUTTON, INPUT_PULLDOWN);
   pinMode(SOS_BUTTON, INPUT_PULLDOWN);
   pinMode(VIBRATION_PIN, OUTPUT);
@@ -436,12 +493,14 @@ void setup() {
   delay(500);
 
   Serial.println("SafeTrail system initialized.");
+  printHelp();
 }
 
 // =========================================================
 //  MAIN LOOP
 // =========================================================
 void loop() {
+  processSerialCommands();
   readGPS();
   handleButtons();
   maintainWiFi();
@@ -469,6 +528,214 @@ void loop() {
   }
 }
 
+// =========================================================
+//  SERIAL TEST CONSOLE
+// =========================================================
+void printHelp() {
+  Serial.println(F(
+    "---- SafeTrail Serial Commands ----\n"
+    "HELP                          - show this list\n"
+    "STATUS                        - full system status dump\n"
+    "GPS <lat> <lng>               - inject a fake GPS fix\n"
+    "ZONE <lat> <lng> <radius_m>   - change safe zone center/radius live\n"
+    "KNN <accel> <gyro> <temp> <hum> <dist> - test classifier, prints neighbors+votes\n"
+    "SOS                           - simulate a 3x SOS button press\n"
+    "SAFEBTN                       - simulate the SAFE button press\n"
+    "THEME                         - cycle OLED display theme\n"
+    "CLOUD <seconds>               - change ThingSpeak upload interval (min 15s)\n"
+    "WIFI                          - print WiFi status\n"
+    "RAWACCEL                      - dump raw MPU6050 accel registers\n"
+    "DHTTEST                       - read+print DHT22 temp/humidity\n"
+    "MPUTEST                       - read+print MPU6050 accel/gyro\n"
+    "OPMODE <SAFE|TRAVEL|SILENT|EMERGENCY|TEST> - set operating mode\n"
+    "------------------------------------"));
+}
+
+void printStatus() {
+  Serial.println("==== SafeTrail STATUS ====");
+  Serial.print("State: ");
+  Serial.println(stateToString(currentState));
+  Serial.print("Risk Score: ");
+  Serial.println(riskScore);
+  Serial.print("Operating Mode: ");
+  Serial.println(currentMode);
+  Serial.print("Display Theme: ");
+  Serial.println(displayTheme);
+  Serial.print("WiFi: ");
+  Serial.println(wifiConnected ? "Connected" : "Disconnected");
+  Serial.print("GPS Fix: ");
+  Serial.println(gpsFixValid ? "Valid" : "No Fix");
+  if (gpsFixValid) {
+    Serial.print("  Lat: ");
+    Serial.println(lastLat, 6);
+    Serial.print("  Lng: ");
+    Serial.println(lastLng, 6);
+    Serial.print("  Distance from safe zone: ");
+    Serial.print(distanceFromSafeZone, 1);
+    Serial.println(" m");
+    Serial.print("  Inside safe zone: ");
+    Serial.println(insideSafeZone ? "YES" : "NO");
+  }
+  Serial.print("Safe Zone Center: ");
+  Serial.print(SAFE_ZONE_LAT, 6);
+  Serial.print(", ");
+  Serial.println(SAFE_ZONE_LNG, 6);
+  Serial.print("Safe Zone Radius: ");
+  Serial.print(SAFE_ZONE_RADIUS_M, 0);
+  Serial.println(" m");
+  Serial.print("Temp: ");
+  Serial.print(temperature, 1);
+  Serial.print("C  Hum: ");
+  Serial.print(humidity, 0);
+  Serial.println("%");
+  Serial.print("Cloud Interval: ");
+  Serial.print(CLOUD_INTERVAL / 1000);
+  Serial.println("s");
+  Serial.println("===========================");
+}
+
+void processSerialCommands() {
+  if (!Serial.available()) return;
+  String line = Serial.readStringUntil('\n');
+  line.trim();
+  if (line.length() == 0) return;
+
+  String cmd = line;
+  String args = "";
+  int sp = line.indexOf(' ');
+  if (sp != -1) {
+    cmd = line.substring(0, sp);
+    args = line.substring(sp + 1);
+    args.trim();
+  }
+  cmd.toUpperCase();
+
+  if (cmd == "HELP") {
+    printHelp();
+
+  } else if (cmd == "STATUS") {
+    printStatus();
+
+  } else if (cmd == "GPS") {
+    int sp2 = args.indexOf(' ');
+    if (sp2 == -1) {
+      Serial.println("Usage: GPS <lat> <lng>");
+      return;
+    }
+    lastLat = args.substring(0, sp2).toDouble();
+    lastLng = args.substring(sp2 + 1).toDouble();
+    gpsFixValid = true;
+    Serial.print("[TEST] Injected GPS fix: ");
+    Serial.print(lastLat, 6);
+    Serial.print(", ");
+    Serial.println(lastLng, 6);
+
+  } else if (cmd == "ZONE") {
+    int sp2 = args.indexOf(' ');
+    int sp3 = (sp2 == -1) ? -1 : args.indexOf(' ', sp2 + 1);
+    if (sp2 == -1 || sp3 == -1) {
+      Serial.println("Usage: ZONE <lat> <lng> <radius_m>");
+      return;
+    }
+    SAFE_ZONE_LAT = args.substring(0, sp2).toDouble();
+    SAFE_ZONE_LNG = args.substring(sp2 + 1, sp3).toDouble();
+    SAFE_ZONE_RADIUS_M = args.substring(sp3 + 1).toDouble();
+    zoneStateInitialized = false;
+    geofenceAlertSent = false;
+    Serial.println("[TEST] Safe zone updated.");
+
+  } else if (cmd == "KNN") {
+    float vals[5];
+    int idx = 0;
+    String remaining = args;
+    while (remaining.length() > 0 && idx < 5) {
+      int s = remaining.indexOf(' ');
+      String tok = (s == -1) ? remaining : remaining.substring(0, s);
+      vals[idx++] = tok.toFloat();
+      if (s == -1) break;
+      remaining = remaining.substring(s + 1);
+      remaining.trim();
+    }
+    if (idx < 5) {
+      Serial.println("Usage: KNN <accel> <gyro> <temp> <hum> <dist>");
+      return;
+    }
+    testKnnVerbose(vals[0], vals[1], vals[2], vals[3], vals[4]);
+
+  } else if (cmd == "SOS") {
+    handleSosPress();
+    handleSosPress();
+    handleSosPress();
+    Serial.println("[TEST] Simulated 3x SOS press.");
+
+  } else if (cmd == "SAFEBTN") {
+    resolveEmergency();
+    Serial.println("[TEST] Simulated SAFE press.");
+
+  } else if (cmd == "THEME") {
+    cycleTheme();
+
+  } else if (cmd == "CLOUD") {
+    long sec = args.toInt();
+    if (sec < 15) {
+      Serial.println("Minimum 15s (ThingSpeak free tier limit).");
+      return;
+    }
+    CLOUD_INTERVAL = (unsigned long)sec * 1000UL;
+    Serial.print("[TEST] Cloud upload interval set to ");
+    Serial.print(sec);
+    Serial.println("s");
+
+  } else if (cmd == "WIFI") {
+    Serial.print("WiFi status: ");
+    Serial.println(wifiConnected ? ("CONNECTED (" + WiFi.localIP().toString() + ")") : "DISCONNECTED");
+
+  } else if (cmd == "RAWACCEL") {
+    dumpRawAccelRegs();
+
+  } else if (cmd == "DHTTEST") {
+    readDHT();
+    Serial.print("Temp: ");
+    Serial.print(temperature);
+    Serial.print("C  Hum: ");
+    Serial.print(humidity);
+    Serial.println("%");
+
+  } else if (cmd == "MPUTEST") {
+    sensors_event_t a, g, t;
+    mpu.getEvent(&a, &g, &t);
+    Serial.print("Accel(m/s^2) X:");
+    Serial.print(a.acceleration.x);
+    Serial.print(" Y:");
+    Serial.print(a.acceleration.y);
+    Serial.print(" Z:");
+    Serial.println(a.acceleration.z);
+    Serial.print("Gyro(rad/s) X:");
+    Serial.print(g.gyro.x);
+    Serial.print(" Y:");
+    Serial.print(g.gyro.y);
+    Serial.print(" Z:");
+    Serial.println(g.gyro.z);
+
+  } else if (cmd == "OPMODE") {
+    args.toUpperCase();
+    if (args == "SAFE") currentMode = MODE_SAFE;
+    else if (args == "TRAVEL") currentMode = MODE_TRAVEL;
+    else if (args == "SILENT") currentMode = MODE_SILENT;
+    else if (args == "EMERGENCY") currentMode = MODE_EMERGENCY;
+    else if (args == "TEST") currentMode = MODE_TEST;
+    else {
+      Serial.println("Usage: OPMODE <SAFE|TRAVEL|SILENT|EMERGENCY|TEST>");
+      return;
+    }
+    Serial.print("[TEST] Operating mode -> ");
+    Serial.println(args);
+
+  } else {
+    Serial.println("Unknown command. Type HELP for list.");
+  }
+}
+
 // ---------------- WiFi ----------------
 void connectWiFi() {
   Serial.println("[WiFi] Connecting...");
@@ -484,7 +751,7 @@ void connectWiFi() {
   wifiConnected = (WiFi.status() == WL_CONNECTED);
   Serial.println();
   Serial.println(wifiConnected ? "[WiFi] CONNECTED: " + WiFi.localIP().toString()
-                               : "[WiFi] FAILED, will retry in background.");
+                                : "[WiFi] FAILED, will retry in background.");
 }
 
 void maintainWiFi() {
@@ -523,7 +790,7 @@ void uploadToCloud() {
 
   Serial.print("[Cloud] ");
   Serial.println(httpCode > 0 ? ("Upload OK, code " + String(httpCode))
-                              : ("Upload failed: " + http.errorToString(httpCode)));
+                               : ("Upload failed: " + http.errorToString(httpCode)));
   http.end();
 }
 
@@ -550,7 +817,17 @@ void readDHT() {
   }
 }
 
+// ---------------- Risk classification ----------------
+// FIX: previously this ran every 300ms and unconditionally overwrote
+// currentState with the KNN prediction - so a confirmed EMERGENCY
+// (from manual SOS or sustained auto-detect) got stomped back to
+// SAFE/CAUTION/etc. on the very next cycle. Now it holds EMERGENCY
+// until resolveEmergency() (the SAFE button) clears it.
 void computeRiskScoreKNN() {
+  if (currentState == EMERGENCY && emergencyAlreadySent) {
+    return;
+  }
+
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
 
@@ -558,22 +835,6 @@ void computeRiskScoreKNN() {
   float gyroMag = sqrt(g.gyro.x * g.gyro.x + g.gyro.y * g.gyro.y + g.gyro.z * g.gyro.z);
 
   float distMeters = gpsFixValid ? (float)distanceFromSafeZone : 0;
-
-  // DEBUG
-  Serial.print("ax=");
-  Serial.print(a.acceleration.x);
-  Serial.print(" ay=");
-  Serial.print(a.acceleration.y);
-  Serial.print(" az=");
-  Serial.print(a.acceleration.z);
-  Serial.print(" | gx=");
-  Serial.print(g.gyro.x);
-  Serial.print(" gy=");
-  Serial.print(g.gyro.y);
-  Serial.print(" gz=");
-  Serial.println(g.gyro.z);
-
-  dumpRawAccelRegs();
 
   int predictedLabel = knnPredict(accelMag, gyroMag, temperature, humidity, distMeters);
 
@@ -596,35 +857,53 @@ void computeRiskScoreKNN() {
 }
 
 // ---------------- Buttons ----------------
+// FIX: previously checked digitalRead(...) == HIGH directly, which fired
+// on every loop() pass (hundreds of times/sec) for as long as the button
+// was physically held - so a single SOS press looked like dozens of rapid
+// presses (breaking the "3 presses within 2s" logic) or none at all
+// depending on timing. Now it only fires once per press (rising edge).
 void handleButtons() {
-  if (digitalRead(MODE_BUTTON) == HIGH && millis() - lastModeDebounce > DEBOUNCE_MS) {
-    lastModeDebounce = millis();
-    cycleMode();
+  bool themeState = digitalRead(THEME_BUTTON);
+  bool safeState = digitalRead(SAFE_BUTTON);
+  bool sosState = digitalRead(SOS_BUTTON);
+
+  if (themeState == HIGH && lastThemeBtnState == LOW && millis() - lastThemeDebounce > DEBOUNCE_MS) {
+    lastThemeDebounce = millis();
+    cycleTheme();
   }
-  if (digitalRead(SAFE_BUTTON) == HIGH && millis() - lastSafeDebounce > DEBOUNCE_MS) {
+  if (safeState == HIGH && lastSafeBtnState == LOW && millis() - lastSafeDebounce > DEBOUNCE_MS) {
     lastSafeDebounce = millis();
     resolveEmergency();
   }
-  if (digitalRead(SOS_BUTTON) == HIGH && millis() - lastSosDebounce > DEBOUNCE_MS) {
+  if (sosState == HIGH && lastSosBtnState == LOW && millis() - lastSosDebounce > DEBOUNCE_MS) {
     lastSosDebounce = millis();
     handleSosPress();
   }
+
+  lastThemeBtnState = themeState;
+  lastSafeBtnState = safeState;
+  lastSosBtnState = sosState;
+
   if (emergencyPending && millis() - emergencyPendingStart > CANCEL_WINDOW_MS) {
     emergencyPending = false;
     triggerEmergency("Manual SOS (3x press)");
   }
 }
 
-void cycleMode() {
-  currentMode = (OperatingMode)((currentMode + 1) % 5);
-  Serial.print("Mode changed to: ");
-  Serial.println(currentMode);
+void cycleTheme() {
+  displayTheme = (displayTheme + 1) % 3;
+  Serial.print("Display theme changed to: ");
+  Serial.println(displayTheme);
 }
 
 void handleSosPress() {
   if (millis() - lastSosPressTime > SOS_PRESS_WINDOW_MS) sosPressCount = 0;
   sosPressCount++;
   lastSosPressTime = millis();
+
+  Serial.print("[SOS] Press ");
+  Serial.print(sosPressCount);
+  Serial.println("/3 registered.");
 
   if (sosPressCount >= 3) {
     sosPressCount = 0;
@@ -639,6 +918,7 @@ void resolveEmergency() {
   if (currentState == EMERGENCY || emergencyPending) {
     emergencyPending = false;
     emergencyAlreadySent = false;
+    emergencyStreak = 0;
     currentState = SAFE;
     riskScore = 0;
     noTone(BUZZER_PIN);
@@ -652,7 +932,8 @@ void resolveEmergency() {
 void triggerEmergency(const char* reason) {
   if (emergencyAlreadySent) return;
   emergencyAlreadySent = true;
-  currentState = EMERGENCY;
+  currentState = EMERGENCY;0
+  riskScore = 99;
 
   Serial.print("EMERGENCY TRIGGERED: ");
   Serial.println(reason);
@@ -668,7 +949,7 @@ void sendEmergencyAlert() {
   } else {
     msg += "Location: GPS fix not available.";
   }
-  //sendSMS(msg);
+  sendSMS(msg);
   alert();
 }
 
@@ -706,7 +987,6 @@ void sendSMS(String message) {
   delay(3000);
 }
 
-// =========================================================
 //  OLED UI
 // =========================================================
 void showBootScreen() {
@@ -722,7 +1002,6 @@ void showBootScreen() {
   display.display();
 }
 
-// Small icon helpers -------------------------------------------------
 void drawWifiIcon(int x, int y, bool connected) {
   if (connected) {
     display.drawLine(x, y + 6, x + 2, y + 4, SSD1306_WHITE);
@@ -746,31 +1025,21 @@ void drawSimIcon(int x, int y, bool ok) {
   if (ok) display.fillRect(x + 1, y + 1, 4, 6, SSD1306_WHITE);
 }
 
-// Main status screen ---------------------------------------------------
-void updateDisplay() {
-  display.clearDisplay();
-
-  // ---- Top status bar ----
+// Theme 0: Standard (icons + big state + risk bar)
+void drawThemeStandard() {
   display.drawFastHLine(0, 10, 128, SSD1306_WHITE);
   drawWifiIcon(2, 1, wifiConnected);
   drawGpsIcon(16, 1, gpsFixValid);
-  drawSimIcon(30, 1, true);  // SIM presence assumed once initialized
+  drawSimIcon(30, 1, true);
 
   display.setTextSize(1);
   display.setCursor(45, 1);
   display.print(insideSafeZone ? "ZONE:IN" : "ZONE:OUT");
 
-  display.setCursor(100, 1);
-  display.print(currentMode == MODE_SILENT ? "SIL" : currentMode == MODE_TRAVEL ? "TRV"
-                                                   : currentMode == MODE_TEST   ? "TST"
-                                                                                : "STD");
-
-  // ---- Big state label ----
   display.setTextSize(2);
   display.setCursor(4, 15);
   display.println(stateToString(currentState));
 
-  // ---- Risk bar ----
   display.drawRect(4, 34, 120, 10, SSD1306_WHITE);
   int fillWidth = map(riskScore, 0, 100, 0, 118);
   display.fillRect(5, 35, fillWidth, 8, SSD1306_WHITE);
@@ -781,7 +1050,6 @@ void updateDisplay() {
   display.print("%");
   display.setTextColor(SSD1306_WHITE);
 
-  // ---- Bottom info line ----
   display.setCursor(0, 48);
   display.print("T:");
   display.print(temperature, 1);
@@ -797,6 +1065,85 @@ void updateDisplay() {
   } else {
     display.print("GPS: searching...");
   }
+}
+
+// Theme 1: Cat (icon view, key info shown at the bottom)
+void drawCatIcon(int cx, int cy) {
+  // outer ears
+  display.fillTriangle(cx - 16, cy - 6, cx - 8, cy - 20, cx - 2, cy - 6, SSD1306_WHITE);
+  display.fillTriangle(cx + 16, cy - 6, cx + 8, cy - 20, cx + 2, cy - 6, SSD1306_WHITE);
+  // inner ears (notch)
+  display.fillTriangle(cx - 13, cy - 8, cx - 8, cy - 16, cx - 4, cy - 8, SSD1306_BLACK);
+  display.fillTriangle(cx + 13, cy - 8, cx + 8, cy - 16, cx + 4, cy - 8, SSD1306_BLACK);
+  // head
+  display.fillCircle(cx, cy, 15, SSD1306_WHITE);
+  // eyes
+  display.fillCircle(cx - 6, cy - 2, 3, SSD1306_BLACK);
+  display.fillCircle(cx + 6, cy - 2, 3, SSD1306_BLACK);
+  display.fillCircle(cx - 6, cy - 2, 1, SSD1306_WHITE);
+  display.fillCircle(cx + 6, cy - 2, 1, SSD1306_WHITE);
+  // nose
+  display.fillTriangle(cx - 2, cy + 4, cx + 2, cy + 4, cx, cy + 7, SSD1306_BLACK);
+  // mouth
+  display.drawLine(cx, cy + 7, cx - 4, cy + 10, SSD1306_BLACK);
+  display.drawLine(cx, cy + 7, cx + 4, cy + 10, SSD1306_BLACK);
+  // whiskers
+  for (int i = -1; i <= 1; i++) {
+    display.drawLine(cx - 24, cy + i * 3, cx - 16, cy + i * 2, SSD1306_WHITE);
+    display.drawLine(cx + 24, cy + i * 3, cx + 16, cy + i * 2, SSD1306_WHITE);
+  }
+}
+
+void drawThemeCat() {
+  drawCatIcon(64, 24);
+
+  display.drawFastHLine(0, 42, 128, SSD1306_WHITE);
+  display.setTextSize(1);
+  display.setCursor(2, 46);
+  display.print("State: ");
+  display.println(stateToString(currentState));
+  display.setCursor(2, 55);
+  display.print("Risk: ");
+  display.print(riskScore);
+  display.println("%");
+}
+
+// Theme 2: Data view (raw numbers, useful for debugging without Serial Monitor)
+void drawThemeData() {
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.print("State: ");
+  display.println(stateToString(currentState));
+  display.print("Risk: ");
+  display.print(riskScore);
+  display.println("%");
+  display.print("T:");
+  display.print(temperature, 1);
+  display.print("C H:");
+  display.print(humidity, 0);
+  display.println("%");
+  display.print("Zone: ");
+  display.println(insideSafeZone ? "INSIDE" : "OUTSIDE");
+  display.print("Dist: ");
+  display.print(distanceFromSafeZone, 0);
+  display.println("m");
+  if (gpsFixValid) {
+    display.print(lastLat, 4);
+    display.print(",");
+    display.println(lastLng, 4);
+  } else {
+    display.println("GPS: no fix");
+  }
+  display.print("WiFi:");
+  display.println(wifiConnected ? "OK" : "NO");
+}
+
+void updateDisplay() {
+  display.clearDisplay();
+
+  if (displayTheme == 0) drawThemeStandard();
+  else if (displayTheme == 1) drawThemeCat();
+  else drawThemeData();
 
   if (emergencyPending) {
     display.fillRect(0, 0, 128, 10, SSD1306_WHITE);
@@ -810,11 +1157,11 @@ void updateDisplay() {
 }
 
 String stateToString(SafetyState s) {
-    switch (s) {
-      case SAFE: return "SAFE";
-      case CAUTION: return "CAUTION";
-      case WARNING: return "WARNING";
-      case EMERGENCY: return "EMERGENCY";
-    }
-    return "UNKNOWN";
+  switch (s) {
+    case SAFE: return "SAFE";
+    case CAUTION: return "CAUTION";
+    case WARNING: return "WARNING";
+    case EMERGENCY: return "EMERGENCY";
   }
+  return "UNKNOWN";
+}
