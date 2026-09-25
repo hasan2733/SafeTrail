@@ -4,6 +4,13 @@
 
 > ESP32 DevKit V1 — 38-pin reference diagram
 
+
+<img width="3300" height="2550" alt="Insert your Channel Id" src="https://github.com/user-attachments/assets/72e97ac5-16a4-4a7b-ad51-3bad6b4a6d77" />
+<img width="3300" height="2550" alt="SafeTrail Dashboard_page-0002" src="https://github.com/user-attachments/assets/8900493d-42db-45d9-8234-acb71f7365ab" />
+
+Webpage view Data will upload in the Thinkspeak a cloud platfrom and then through the private api this page show the movement of the user.
+
+
 ## Components
 
 - ESP32 DevKit V1 (38-pin)
