@@ -1,37 +1,64 @@
 # SafeTrail
+**An Embedded Systems Lab Project**
+
+## Project Overview
+
+SafeTrail is a comprehensive embedded systems project designed to demonstrate real-world IoT and safety device development using the ESP32 microcontroller. The system integrates multiple sensors, wireless communication modules, and a cloud-based web dashboard to track user location and environmental conditions in real-time.
+
+### Key Features
+
+- **Real-time Location Tracking** via NEO-6M GPS module
+- **Emergency SOS Alert System** with GSM messaging (SIM800L)
+- **Environmental Monitoring** using DHT22 (temperature and humidity) and MPU6050 (motion detection)
+- **Smart User Interface** with OLED display and three-button control system
+- **Cloud Data Integration** via ThingSpeak API for web-based monitoring
+- **Active Safety Feedback** with buzzer and vibration motor alerts
+- **Battery Powered** with Li-ion charging and protection system
+
+---
+
+## System Architecture
 
 <img width="1000" height="595" alt="ESP32 DevKit V1 38-pin diagram" src="https://github.com/user-attachments/assets/70127d7a-a3ee-4f65-bf13-512b797dd93b" />
 
 > ESP32 DevKit V1 — 38-pin reference diagram
 
+### Dashboard & Web Interface
 
-<img width="3300" height="2550" alt="Insert your Channel Id" src="https://github.com/user-attachments/assets/72e97ac5-16a4-4a7b-ad51-3bad6b4a6d77" />
-<img width="3300" height="2550" alt="SafeTrail Dashboard_page-0002" src="https://github.com/user-attachments/assets/8900493d-42db-45d9-8234-acb71f7365ab" />
+<img width="3300" height="2550" alt="SafeTrail Configuration Dashboard" src="https://github.com/user-attachments/assets/72e97ac5-16a4-4a7b-ad51-3bad6b4a6d77" />
 
-Webpage view Data will upload in the Thinkspeak a cloud platfrom and then through the private api this page show the movement of the user.
+<img width="3300" height="2550" alt="SafeTrail Movement Dashboard" src="https://github.com/user-attachments/assets/8900493d-42db-45d9-8234-acb71f7365ab" />
 
+**Dashboard Functionality:**
+- Real-time GPS location visualization
+- Historical movement tracking
+- Environmental data graphs (temperature, humidity, motion)
+- Emergency alert logs
+- Device status and battery monitoring
 
-## Components
+Data is transmitted to **ThingSpeak** (cloud platform) via the SIM800L GSM module and retrieved through a private API for display on the web dashboard.
 
-- ESP32 DevKit V1 (38-pin)
-- MPU6050 accelerometer and gyroscope module
-- DHT22 temperature and humidity sensor (3-pin module)
-- SSD1306 I2C OLED display
-- Buzzer module (3-pin)
-- 3 × push-button modules: SOS, SAFE, and MODE
-- Vibration motor
-- NPN transistor for motor switching
-- 200 Ω resistor for the transistor base
-- Flyback diode for the vibration motor
-- NEO-6M GPS module
-- SIM800L GSM module
-- 1000 µF, 16 V electrolytic capacitor for SIM800L power stabilization
-- Li-ion battery (3.7–4.2 V)
-- TP4056 Li-ion battery charging/protection module
-- 10 kΩ pull-up resistor for the DHT22 data line
-- Connecting wires and a common-ground connection
+---
 
-## Circuit Wiring / Pin Connections
+## Hardware Components
+
+| Component | Specifications | Purpose |
+|-----------|---|---|
+| **ESP32 DevKit V1** | 38-pin, dual-core microcontroller | Main processor and WiFi/BLE |
+| **MPU6050** | 6-axis accelerometer/gyroscope | Motion and fall detection |
+| **DHT22** | Temperature/humidity sensor | Environmental monitoring |
+| **SSD1306** | 128×64 I2C OLED display | User interface display |
+| **NEO-6M GPS** | U-Blox module | Location tracking |
+| **SIM800L GSM** | Quad-band cellular module | GSM/GPRS communication |
+| **Buzzer Module** | 3-pin active buzzer | Audio alerts |
+| **Vibration Motor** | With transistor driver | Tactile notifications |
+| **Push Buttons** | SOS, SAFE, MODE buttons | User input controls |
+| **Power Management** | TP4056 + Li-ion battery | Charging and power regulation |
+| **Supporting Components** | Resistors, diodes, capacitors | Circuit stabilization |
+
+---
+
+## Circuit Wiring & Pin Connections
 
 ### 1. MPU6050 — Accelerometer and Gyroscope
 
@@ -50,7 +77,7 @@ Webpage view Data will upload in the Thinkspeak a cloud platfrom and then throug
 | GND | GND |
 | DATA / OUT | GPIO 4 |
 
-A **10 kΩ pull-up resistor** must be connected between the DHT22 **VCC** and **DATA/OUT** pins.
+**Note:** A **10 kΩ pull-up resistor** must be connected between DHT22 **VCC** and **DATA/OUT** pins.
 
 ### 3. SSD1306 OLED Display — I2C
 
@@ -58,8 +85,8 @@ A **10 kΩ pull-up resistor** must be connected between the DHT22 **VCC** and **
 |---|---|
 | VCC | 3.3 V |
 | GND | GND |
-| SCL | GPIO 22 (shared I2C bus with the MPU6050) |
-| SDA | GPIO 21 (shared I2C bus with the MPU6050) |
+| SCL | GPIO 22 (shared I2C bus with MPU6050) |
+| SDA | GPIO 21 (shared I2C bus with MPU6050) |
 
 ### 4. Buzzer Module
 
@@ -72,27 +99,28 @@ A **10 kΩ pull-up resistor** must be connected between the DHT22 **VCC** and **
 ### 5. Push-Button Modules
 
 | Button | VCC | GND | OUT |
-|---|---:|---|---:|
-| SOS | 3.3 V | GND | GPIO 32 |
-| SAFE | 3.3 V | GND | GPIO 33 |
-| MODE | 3.3 V | GND | GPIO 25 |
+|---|---|---|---|
+| **SOS** (Emergency) | 3.3 V | GND | GPIO 32 |
+| **SAFE** (All Clear) | 3.3 V | GND | GPIO 33 |
+| **MODE** (Function Select) | 3.3 V | GND | GPIO 25 |
 
 ### 6. Vibration Motor — Transistor Driver Circuit
 
-The vibration motor is powered from the battery through a transistor switch. Do not drive the motor directly from an ESP32 GPIO pin.
+⚠️ **The vibration motor MUST NOT be driven directly from an ESP32 GPIO pin.** Use a transistor-based driver circuit.
 
 ```text
-ESP32 GPIO 26 ──[200 Ω resistor]── Transistor BASE
+ESP32 GPIO 26 ──[200 Ω resistor]── NPN Transistor BASE
 
 Battery (+) ───────────── Motor (+)
 Motor (−) ────────────── Transistor COLLECTOR
 Transistor EMITTER ───── Common GND
 ```
 
-- Connect the battery positive terminal to the motor positive terminal.
-- Connect the motor negative terminal to the transistor collector.
-- Connect the transistor emitter to the common ground shared by the battery and ESP32.
-- Connect a flyback diode across the motor terminals, with the diode **cathode connected toward Battery (+)**.
+**Wiring Steps:**
+1. Connect battery positive to motor positive
+2. Connect motor negative to transistor collector
+3. Connect transistor emitter to common ground (battery and ESP32)
+4. Connect **flyback diode** across motor terminals (cathode toward battery +)
 
 ### 7. NEO-6M GPS Module
 
@@ -103,22 +131,22 @@ Transistor EMITTER ───── Common GND
 | TX | GPIO 16 (ESP32 RX2) |
 | RX | GPIO 17 (ESP32 TX2) |
 
-The serial connection is crossed: **GPS TX → ESP32 RX** and **GPS RX → ESP32 TX**.
+**Serial Connection:** GPS TX → ESP32 RX2 | GPS RX → ESP32 TX2 (crossed)
 
 ### 8. SIM800L GSM Module
 
-The SIM800L must be powered directly from the Li-ion battery supply. **Do not power the SIM800L from the ESP32 3.3 V output.**
+⚠️ **CRITICAL:** The SIM800L MUST be powered directly from the Li-ion battery (3.7–4.2 V). **Do NOT use ESP32 3.3 V output.**
 
 | SIM800L Pin | Connection |
 |---|---|
-| VCC | Directly to the battery supply (3.7–4.2 V) |
+| VCC | Directly to battery supply (3.7–4.2 V) |
 | GND | Battery GND and common ESP32 GND |
 | TX | GPIO 13 (ESP32 RX1) |
 | RX | GPIO 14 (ESP32 TX1) |
 
-Connect a **1000 µF, 16 V electrolytic capacitor** directly between the SIM800L **VCC and GND** pins. Observe the capacitor polarity: the positive terminal must connect to VCC and the negative terminal must connect to GND.
+**Power Stabilization:** Connect a **1000 µF, 16 V electrolytic capacitor** directly between SIM800L **VCC and GND** pins. Observe polarity (+ to VCC, − to GND).
 
-The serial connection is crossed: **SIM800L TX → ESP32 RX** and **SIM800L RX → ESP32 TX**.
+**Serial Connection:** SIM800L TX → ESP32 RX1 | SIM800L RX → ESP32 TX1 (crossed)
 
 ### 9. Power System
 
@@ -126,32 +154,62 @@ The serial connection is crossed: **SIM800L TX → ESP32 RX** and **SIM800L RX �
 Li-ion Battery (+) ──→ TP4056 IN+
 Li-ion Battery (−) ──→ TP4056 IN−
 
-TP4056 OUT+ ──────────→ SIM800L VCC and vibration-motor supply
+TP4056 OUT+ ──────────→ SIM800L VCC + Vibration Motor Supply
 TP4056 OUT− ──────────→ Common GND
 ```
 
-## Pin Summary
+---
 
-| Function | ESP32 GPIO / Connection |
+## ESP32 Pin Summary
+
+| Function | ESP32 GPIO |
 |---|---|
-| I2C SDA — MPU6050 + OLED | GPIO 21 |
-| I2C SCL — MPU6050 + OLED | GPIO 22 |
-| DHT22 data | GPIO 4 |
-| SOS button | GPIO 32 |
-| SAFE button | GPIO 33 |
-| MODE button | GPIO 25 |
+| I2C SDA (MPU6050 + OLED) | GPIO 21 |
+| I2C SCL (MPU6050 + OLED) | GPIO 22 |
+| DHT22 Data | GPIO 4 |
+| SOS Button | GPIO 32 |
+| SAFE Button | GPIO 33 |
+| MODE Button | GPIO 25 |
 | Buzzer | GPIO 27 |
-| Vibration motor control | GPIO 26 |
-| GPS RX2 | GPIO 16 |
-| GPS TX2 | GPIO 17 |
-| SIM800L RX1 | GPIO 13 |
-| SIM800L TX1 | GPIO 14 |
-| Wi-Fi | Built into the ESP32; no external wiring required |
+| Vibration Motor Control | GPIO 26 |
+| GPS RX (RX2) | GPIO 16 |
+| GPS TX (TX2) | GPIO 17 |
+| SIM800L RX (RX1) | GPIO 13 |
+| SIM800L TX (TX1) | GPIO 14 |
+| Wi-Fi | Built-in (no external wiring) |
 
-## Important Wiring Notes
+---
 
-- All grounds must be connected together: ESP32, battery, GPS, SIM800L, motor-driver circuit, sensors, and OLED.
-- A common ground is required for reliable signal communication and serial data transfer.
-- Confirm the polarity of the 1000 µF capacitor before powering the SIM800L.
-- Keep the SIM800L power wiring short and capable of handling its current peaks.
-- Verify the transistor pinout and the voltage requirements of every module before applying power.
+## Critical Wiring Guidelines
+
+✓ **Best Practices:**
+- Connect all grounds together: ESP32, battery, sensors, GPS, SIM800L, motor circuit, and OLED
+- Use a **common ground plane** for reliable signal communication and serial data transfer
+- Keep power wiring to SIM800L **short and robust** (capable of handling current peaks up to 2A)
+- Double-check all polarities (especially the electrolytic capacitor and Li-ion battery)
+- Verify transistor pinout and voltage requirements before power-up
+- Test each module individually before final integration
+
+⚠️ **Safety Warnings:**
+- Li-ion battery handling requires proper protection (use TP4056 module)
+- SIM800L draws significant peak current; use dedicated power supply and capacitor
+- Always verify component voltage ratings before application
+- Use appropriate wire gauges for high-current paths (battery to SIM800L, motor circuit)
+
+---
+
+## Project Learning Outcomes
+
+This project demonstrates proficiency in:
+- **Microcontroller Programming** (ESP32 FreeRTOS development)
+- **Hardware Design & Integration** (multi-module sensor fusion)
+- **Serial Communication Protocols** (I2C, UART)
+- **IoT & Cloud Integration** (ThingSpeak API, GSM communication)
+- **Embedded Systems Concepts** (power management, real-time constraints, sensor calibration)
+- **PCB Design** (circuit layout and schematic design)
+
+---
+
+## License
+
+This project is part of the Embedded Systems Lab curriculum.
