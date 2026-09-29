@@ -1,5 +1,9 @@
 # SafeTrail
 
+[![Demo Video](https://img.youtube.com/vi/zX_D5FCz2U8/maxresdefault.jpg)](https://youtu.be/zX_D5FCz2U8)
+
+> Demo video: SafeTrail in action
+
 <img width="1000" height="595" alt="ESP32 DevKit V1 38-pin diagram" src="https://github.com/user-attachments/assets/70127d7a-a3ee-4f65-bf13-512b797dd93b" />
 
 > ESP32 DevKit V1 — 38-pin reference diagram
@@ -10,7 +14,7 @@
 
 Webpage view: data is uploaded to ThingSpeak, a cloud platform, and then displayed through a private API so the movement of the user can be monitored in real time.
 
-SafeTrail is a personal safety and emergency response wearable built around the ESP32 microcontroller. It combines environmental sensing, motion analysis, GPS tracking, geofencing, emergency alerting, and cloud-based monitoring to support rapid response in risky conditions.
+SafeTrail is a personal safety and emergency response wearable built around the ESP32 microcontroller. It combines environmental sensing, motion analysis, GPS tracking, geofencing, emergency alerting,[...]
 
 The current implementation includes a K-Nearest Neighbors (KNN) risk classifier, geofence logic, OLED display status feedback, SMS fallback alerts, and ThingSpeak-based cloud monitoring.
 
@@ -159,7 +163,7 @@ Labels used in the model:
 The code includes a verbose KNN test command to inspect nearest neighbors and vote counts directly from the serial console.
 
 ### Important Note
-The training data in the current code is a placeholder dataset intended for prototype validation. For real deployment, it should be replaced with field-collected and labeled user data for better accuracy and reliability.
+The training data in the current code is a placeholder dataset intended for prototype validation. For real deployment, it should be replaced with field-collected and labeled user data for better accur[...]
 
 ---
 
@@ -315,7 +319,7 @@ During runtime, SafeTrail does the following:
 
 ## Project Notes
 
-This repository is intended as an embedded systems safety prototype and demonstration project. The current code is functional for testing, simulation, and hardware validation, but some parts, especially the deployed risk model and communication configuration, should be refined before real-world deployment.
+This repository is intended as an embedded systems safety prototype and demonstration project. The current code is functional for testing, simulation, and hardware validation, but some parts, especial[...]
 
 ---
 
